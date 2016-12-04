@@ -329,40 +329,15 @@ class ElemwiseMergeLayer(MergeLayer):
 
     def get_output_shape_for(self, input_shapes):
         input_shapes = autocrop_array_shapes(input_shapes, self.cropping)
-
-        input_dims = [len(shp) for shp in input_shapes]
-        if not all(input_dim == input_dims[0] for input_dim in input_dims):
-            raise ValueError('Input dimensions must be the same but were %s' %
-                             ", ".join(map(str, input_shapes)))
-
-        def broadcasting(input_dim):
-            # Identify dimensions that will be broadcasted.
-            sorted_dim = sorted(input_dim,
-                                key=lambda x: x if x is not None else -1)
-            if isinstance(sorted_dim[-1], int) and sorted_dim[-1] != 1 \
-                    and all([d == 1 for d in sorted_dim[:-1]]):
-                size_after_broadcast = sorted_dim[-1]
-                broadcast = [True if d == 1 else None for d in input_dim]
-                return ((size_after_broadcast,)*len(input_dim), broadcast)
-            else:
-                return (input_dim, [None]*len(input_dim))
-
-        # if the dimension is broadcastable we replace 1's with the size
-        # after broadcasting.
-        input_dims, broadcastable = list(zip(
-            *[broadcasting(input_dim)for input_dim in zip(*input_shapes)]))
-
-        self.broadcastable = list(zip(*broadcastable))
-        input_shapes = list(zip(*input_dims))
-
-        # Infer the output shape by grabbing, for each axis, the first
+		# Infer the output shape by grabbing, for each axis, the maximum
         # input size that is not `None` (if there is any)
-        output_shape = tuple(next((s for s in sizes if s is not None), None)
+        output_shape = tuple(max(sizes,
+                                 key=lambda x: x if x is not None else -1)
                              for sizes in zip(*input_shapes))
 
         def match(shape1, shape2):
             return (len(shape1) == len(shape2) and
-                    all(s1 is None or s2 is None or s1 == s2
+                    all(s1 is None or s1 == 1 or s2 is None or s2 == 1 or s1 == s2
                         for s1, s2 in zip(shape1, shape2)))
 
         # Check for compatibility with inferred output shape
