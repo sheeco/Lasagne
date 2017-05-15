@@ -1,5 +1,26 @@
 import theano
-from theano.sandbox.cuda import dnn
+if theano.gpuarray.pygpu_activated:
+    from theano.gpuarray import dnn
+    if not dnn.dnn_present():
+        raise ImportError(
+            "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
+            /en/latest/user/installation.html#cudnn" %
+            dnn.dnn_available.msg)  # pragma: no cover
+elif theano.sandbox.cuda.cuda_enabled:
+    try:
+        from theano.sandbox.cuda import dnn
+        if not dnn.dnn_available():
+            raise ImportError(
+                "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
+                /en/latest/user/installation.html#cudnn" %
+                dnn.dnn_available.msg)  # pragma: no cover
+    except:
+        raise ImportError('theano.sandbox.cuda.dnn is not available.')
+else:
+    raise ImportError(
+        "requires GPU support -- see http://lasagne.readthedocs.org/en/"
+        "latest/user/installation.html#gpu-support")  # pragma: no cover
+
 
 from .. import init
 from .. import nonlinearities
@@ -9,16 +30,6 @@ from .conv import conv_output_length, BaseConvLayer
 from .pool import pool_output_length
 from .normalization import BatchNormLayer
 from ..utils import as_tuple
-
-if not theano.sandbox.cuda.cuda_enabled:
-    raise ImportError(
-            "requires GPU support -- see http://lasagne.readthedocs.org/en/"
-            "latest/user/installation.html#gpu-support")  # pragma: no cover
-elif not dnn.dnn_available():
-    raise ImportError(
-            "cuDNN not available: %s\nSee http://lasagne.readthedocs.org/en/"
-            "latest/user/installation.html#cudnn" %
-            dnn.dnn_available.msg)  # pragma: no cover
 
 
 __all__ = [
