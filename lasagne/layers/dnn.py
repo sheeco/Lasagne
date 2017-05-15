@@ -1,12 +1,12 @@
 import theano
-if theano.gpuarray.pygpu_activated:
+if theano.config.device == 'cuda' and theano.gpuarray.pygpu_activated:
     from theano.gpuarray import dnn
     if not dnn.dnn_present():
         raise ImportError(
             "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
             /en/latest/user/installation.html#cudnn" %
             dnn.dnn_available.msg)  # pragma: no cover
-elif theano.sandbox.cuda.cuda_enabled:
+elif theano.config.device == 'gpu' and theano.sandbox.cuda.cuda_enabled:
     try:
         from theano.sandbox.cuda import dnn
         if not dnn.dnn_available():

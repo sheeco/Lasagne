@@ -660,10 +660,12 @@ class TestDilatedConv2DLayer:
 
 class TestConv2DDNNLayer:
     def test_import_without_gpu_or_cudnn_raises(self):
-        if (theano.gpuarray.pygpu_activated and
+        if (theano.config.device == 'cuda' and
+                theano.gpuarray.pygpu_activated and
                 theano.gpuarray.dnn.dnn_present()):
             pytest.skip()
-        elif (theano.sandbox.cuda.cuda_enabled and
+        elif (theano.config.device == 'gpu' and
+              theano.sandbox.cuda.cuda_enabled and
               theano.sandbox.cuda.dnn.dnn_available()):
             pytest.skip()
         else:
@@ -673,9 +675,11 @@ class TestConv2DDNNLayer:
 
 class TestConv2DMMLayer:
     def test_import_without_gpu_raises(self):
-        if theano.gpuarray.pygpu_activated:
+        if (theano.config.device == 'cuda' and
+                theano.gpuarray.pygpu_activated):
             pytest.skip()
-        elif theano.sandbox.cuda.cuda_enabled:
+        elif (theano.config.device == 'gpu' and
+                theano.sandbox.cuda.cuda_enabled):
             pytest.skip()
         else:
             with pytest.raises(ImportError):
@@ -684,9 +688,11 @@ class TestConv2DMMLayer:
 
 class TestConv2DCCLayer:
     def test_import_without_gpu_raises(self):
-        if theano.gpuarray.pygpu_activated:
+        if (theano.config.device == 'cuda' and
+                theano.gpuarray.pygpu_activated):
             pytest.skip()
-        elif theano.sandbox.cuda.cuda_enabled:
+        elif (theano.config.device == 'gpu' and
+                theano.sandbox.cuda.cuda_enabled):
             pytest.skip()
         else:
             with pytest.raises(ImportError):
