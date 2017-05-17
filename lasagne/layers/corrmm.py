@@ -8,20 +8,19 @@ from .base import Layer
 from .conv import conv_output_length, BaseConvLayer
 from ..utils import as_tuple
 
-if theano.config.device == 'cuda' and theano.gpuarray.pygpu_activated:
+from lasagne import theano_backend
+if theano_backend == 'pygpu':
     from theano.gpuarray.basic_ops import gpu_contiguous
     from theano.gpuarray.blas import GpuCorrMM
-
-elif theano.config.device == 'gpu' and theano.sandbox.cuda.cuda_enabled:
-    try:
-        from theano.sandbox.cuda.basic_ops import gpu_contiguous
-        from theano.sandbox.cuda.blas import GpuCorrMM
-    except:
-        raise ImportError('sandbox.cuda is not available in your\
-         version of theano.')
+elif theano_backend == 'pygpu_sandbox':
+    from theano.sandbox.gpuarray.basic_ops import gpu_contiguous
+    from theano.sandbox.gpuarray.blas import GpuCorrMM
+elif theano_backend == 'cuda_sandbox':
+    from theano.sandbox.cuda.basic_ops import gpu_contiguous
+    from theano.sandbox.cuda.blas import GpuCorrMM
 else:
     raise ImportError("requires GPU support -- see http://lasagne.\
-        readthedocs.org/en/latest/user/installation.html#gpu-support")
+                readthedocs.org/en/latest/user/installation.html#gpu-support")
 
 __all__ = [
     "Conv2DMMLayer",

@@ -32,3 +32,19 @@ from . import utils
 
 
 __version__ = "0.2.dev1"
+theano_backend = "cpu"
+try:
+    from theano import gpuarray as gpu
+    if gpu.pygpu_activated:
+        theano_backend = "pygpu"
+except ImportError:
+    try:
+        from theano.sandbox import gpuarray as gpu
+        if gpu.pygpu_activated:
+            theano_backend = "pygpu_sandbox"
+        else:
+            raise ImportError
+    except ImportError:
+        from theano.sandbox import cuda as gpu
+        if gpu.cuda_enabled:
+            theano_backend = "cuda_sandbox"

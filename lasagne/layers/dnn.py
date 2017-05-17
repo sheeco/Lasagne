@@ -1,27 +1,4 @@
 import theano
-if theano.config.device == 'cuda' and theano.gpuarray.pygpu_activated:
-    from theano.gpuarray import dnn
-    if not dnn.dnn_present():
-        raise ImportError(
-            "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
-            /en/latest/user/installation.html#cudnn" %
-            dnn.dnn_available.msg)  # pragma: no cover
-elif theano.config.device == 'gpu' and theano.sandbox.cuda.cuda_enabled:
-    try:
-        from theano.sandbox.cuda import dnn
-        if not dnn.dnn_available():
-            raise ImportError(
-                "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
-                /en/latest/user/installation.html#cudnn" %
-                dnn.dnn_available.msg)  # pragma: no cover
-    except:
-        raise ImportError('theano.sandbox.cuda.dnn is not available.')
-else:
-    raise ImportError(
-        "requires GPU support -- see http://lasagne.readthedocs.org/en/"
-        "latest/user/installation.html#gpu-support")  # pragma: no cover
-
-
 from .. import init
 from .. import nonlinearities
 from .base import Layer
@@ -30,6 +7,28 @@ from .conv import conv_output_length, BaseConvLayer
 from .pool import pool_output_length
 from .normalization import BatchNormLayer
 from ..utils import as_tuple
+
+from lasagne import theano_backend
+dnn_avail = False
+if theano_backend == 'pygpu':
+    from theano.gpuarray import dnn
+    if dnn.dnn_present():
+        dnn_avail = True
+elif theano_backend == 'pygpu_sandbox':
+    from theano.sandbox.gpuarray import dnn
+    if dnn.dnn_present():
+        dnn_avail = True
+elif theano_backend == 'cuda_sandbox':
+    from theano.sandbox.cuda import dnn
+    if dnn.dnn_available():
+        dnn_available = True
+else:
+    raise ImportError("requires GPU support -- see http://lasagne.\
+                readthedocs.org/en/latest/user/installation.html#gpu-support")
+if not dnn_available:
+    raise ImportError(
+        "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
+        /en/latest/user/installation.html#cudnn")  # pragma: no cover
 
 
 __all__ = [
