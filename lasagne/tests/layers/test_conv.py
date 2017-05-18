@@ -693,7 +693,7 @@ class TestConv2DDNNLayer:
                 pytest.skip()
         else:
             with pytest.raises(ImportError):
-                import lasagne.layers.corrmm
+                import lasagne.layers.dnn
 
 
 class TestConv2DMMLayer:
