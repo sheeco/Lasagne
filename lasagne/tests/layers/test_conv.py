@@ -6,7 +6,25 @@ from theano import tensor as T
 
 import lasagne
 from lasagne.utils import floatX, as_tuple
-from lasagne import theano_backend
+
+theano_backend = "cpu"
+try:
+    from theano import gpuarray
+    theano_backend = "pygpu"
+except ImportError:
+    from theano.sandbox import gpuarray
+    theano_backend = "pygpu_sandbox"
+gpu = gpuarray.pygpu_activated
+if not gpu:
+    theano_backend = "cpu"
+    try:
+        from theano.sandbox import cuda
+        theano_backend = "cuda_sandbox"
+        gpu = cuda.cuda_enabled
+    except ImportError:
+        gpu = False
+    if not gpu:
+        theano_backend = "cpu"
 
 
 def convNd(input, kernel, pad, stride=1, n=None):

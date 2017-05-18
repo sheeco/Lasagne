@@ -1,4 +1,5 @@
 import theano
+
 from .. import init
 from .. import nonlinearities
 from .base import Layer
@@ -7,29 +8,31 @@ from .conv import conv_output_length, BaseConvLayer
 from .pool import pool_output_length
 from .normalization import BatchNormLayer
 from ..utils import as_tuple
-
-from lasagne import theano_backend
 dnn_avail = False
-if theano_backend == 'pygpu':
-    from theano.gpuarray import dnn
-    if dnn.dnn_present():
-        dnn_avail = True
-elif theano_backend == 'pygpu_sandbox':
-    from theano.sandbox.gpuarray import dnn
-    if dnn.dnn_present():
-        dnn_avail = True
-elif theano_backend == 'cuda_sandbox':
-    from theano.sandbox.cuda import dnn
-    if dnn.dnn_available():
-        dnn_available = True
+try:
+    from theano import gpuarray
+except ImportError:
+    from theano.sandbox import gpuarray
+if gpuarray.pygpu_activated and gpuarray.dnn.dnn_present():
+    dnn = gpuarray.dnn
+    dnn_avail = True
 else:
-    raise ImportError("requires GPU support -- see http://lasagne.\
-                readthedocs.org/en/latest/user/installation.html#gpu-support")
-if not dnn_available:
-    raise ImportError(
-        "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
-        /en/latest/user/installation.html#cudnn")  # pragma: no cover
+    try:
+        from theano.sandbox import cuda
 
+        enabled = cuda.cuda_enabled
+        if enabled and cuda.dnn.dnn_available():
+            dnn = cuda.dnn
+            dnn_avail = True
+    except ImportError:
+        raise ImportError(
+            "requires GPU support -- see http://lasagne.readthedocs.org/en/"
+            "latest/user/installation.html#gpu-support")  # pragma: no cover
+if not dnn_avail:
+        raise ImportError(
+            "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
+            /en/latest/user/installation.html#cudnn"
+            % dnn.dnn_available.msg)  # pragma: no cover
 
 __all__ = [
     "Pool2DDNNLayer",
