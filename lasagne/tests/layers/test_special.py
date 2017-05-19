@@ -633,8 +633,8 @@ class TestParametricRectifierLayer:
     @pytest.fixture
     def init_alpha(self):
         # initializer for a tensor of unique values
-        return lambda shape: (np.arange(np.prod(shape)).reshape(shape)) \
-            / np.prod(shape)
+        return lambda shape: ((np.arange(np.prod(shape)).reshape(shape)) /
+                              np.prod(shape)).astype(theano.config.floatX)
 
     def test_alpha_init(self, ParametricRectifierLayer, init_alpha):
         input_shape = (None, 3, 28, 28)
