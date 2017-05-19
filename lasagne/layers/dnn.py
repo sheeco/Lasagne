@@ -31,7 +31,7 @@ else:
             "latest/user/installation.html#gpu-support")  # pragma: no cover
 if not dnn_avail:
         raise ImportError(
-            "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
+            "cuDNN not available:See http://lasagne.readthedocs.org\
             /en/latest/user/installation.html#cudnn")  # pragma: no cover
 
 __all__ = [
