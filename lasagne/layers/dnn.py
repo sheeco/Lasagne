@@ -8,6 +8,7 @@ from .conv import conv_output_length, BaseConvLayer
 from .pool import pool_output_length
 from .normalization import BatchNormLayer
 from ..utils import as_tuple
+
 dnn_avail = False
 try:
     from theano import gpuarray
@@ -31,8 +32,7 @@ else:
 if not dnn_avail:
         raise ImportError(
             "cuDNN not available: %s\nSee http://lasagne.readthedocs.org\
-            /en/latest/user/installation.html#cudnn"
-            % dnn.dnn_available.msg)  # pragma: no cover
+            /en/latest/user/installation.html#cudnn")  # pragma: no cover
 
 __all__ = [
     "Pool2DDNNLayer",
