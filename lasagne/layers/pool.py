@@ -3,19 +3,20 @@ import theano.tensor as T
 from .base import Layer
 from ..utils import as_tuple
 
-from theano.tensor.signal.pool import pool_2d
-
 __all__ = [
     "MaxPool1DLayer",
     "MaxPool2DLayer",
+    "MaxPool3DLayer",
     "Pool1DLayer",
     "Pool2DLayer",
+    "Pool3DLayer",
     "Upscale1DLayer",
     "Upscale2DLayer",
     "Upscale3DLayer",
     "FeaturePoolLayer",
     "FeatureWTALayer",
     "GlobalPoolLayer",
+    "SpatialPyramidPoolingLayer",
 ]
 
 
@@ -72,6 +73,36 @@ def pool_output_length(input_length, pool_size, stride, pad, ignore_border):
                 0, (input_length - pool_size + stride - 1) // stride) + 1
 
     return output_length
+
+
+def pool_2d(input, **kwargs):
+    """
+    Wrapper function that calls :func:`theano.tensor.signal.pool_2d` either
+    with the new or old keyword argument names expected by Theano.
+    """
+    try:
+        return T.signal.pool.pool_2d(input, **kwargs)
+    except TypeError:  # pragma: no cover
+        # convert from new to old interface
+        kwargs['ds'] = kwargs.pop('ws')
+        kwargs['st'] = kwargs.pop('stride')
+        kwargs['padding'] = kwargs.pop('pad')
+        return T.signal.pool.pool_2d(input, **kwargs)
+
+
+def pool_3d(input, **kwargs):  # pragma: no cover
+    """
+    Wrapper function that calls :func:`theano.tensor.signal.pool_3d` either
+    with the new or old keyword argument names expected by Theano.
+    """
+    try:
+        return T.signal.pool.pool_3d(input, **kwargs)
+    except TypeError:  # pragma: no cover
+        # convert from new to old interface
+        kwargs['ds'] = kwargs.pop('ws')
+        kwargs['st'] = kwargs.pop('stride')
+        kwargs['padding'] = kwargs.pop('pad')
+        return T.signal.pool.pool_3d(input, **kwargs)
 
 
 class Pool1DLayer(Layer):
@@ -155,10 +186,10 @@ class Pool1DLayer(Layer):
         input_4d = T.shape_padright(input, 1)
 
         pooled = pool_2d(input_4d,
-                         ds=(self.pool_size[0], 1),
-                         st=(self.stride[0], 1),
+                         ws=(self.pool_size[0], 1),
+                         stride=(self.stride[0], 1),
                          ignore_border=self.ignore_border,
-                         padding=(self.pad[0], 0),
+                         pad=(self.pad[0], 0),
                          mode=self.mode,
                          )
         return pooled[:, :, :, 0]
@@ -259,10 +290,121 @@ class Pool2DLayer(Layer):
 
     def get_output_for(self, input, **kwargs):
         pooled = pool_2d(input,
-                         ds=self.pool_size,
-                         st=self.stride,
+                         ws=self.pool_size,
+                         stride=self.stride,
                          ignore_border=self.ignore_border,
-                         padding=self.pad,
+                         pad=self.pad,
+                         mode=self.mode,
+                         )
+        return pooled
+
+
+class Pool3DLayer(Layer):  # pragma: no cover
+    """
+    3D pooling layer
+
+    Performs 3D mean or max-pooling over the three trailing axes
+    of a 5D input tensor.
+
+    Parameters
+    ----------
+    incoming : a :class:`Layer` instance or tuple
+        The layer feeding into this layer, or the expected input shape.
+
+    pool_size : integer or iterable
+        The length of the pooling region in each dimension.  If an integer, it
+        is promoted to a cubic pooling region. If an iterable, it should have
+        three elements.
+
+    stride : integer, iterable or ``None``
+        The strides between sucessive pooling regions in each dimension.
+        If ``None`` then ``stride = pool_size``.
+
+    pad : integer or iterable
+        Number of elements to be added on each side of the input
+        in each dimension. Each value must be less than
+        the corresponding stride.
+
+    ignore_border : bool
+        If ``True``, partial pooling regions will be ignored.
+        Must be ``True`` if ``pad != (0, 0, 0)``.
+
+    mode : {'max', 'average_inc_pad', 'average_exc_pad'}
+        Pooling mode: max-pooling or mean-pooling including/excluding zeros
+        from partially padded pooling regions. Default is 'max'.
+
+    **kwargs
+        Any additional keyword arguments are passed to the :class:`Layer`
+        superclass.
+
+    See Also
+    --------
+    MaxPool3DLayer : Shortcut for max pooling layer.
+
+    Notes
+    -----
+    The value used to pad the input is chosen to be less than
+    the minimum of the input, so that the output of each pooling region
+    always corresponds to some element in the unpadded input region.
+
+    Using ``ignore_border=False`` prevents Theano from using cuDNN for the
+    operation, so it will fall back to a slower implementation.
+    """
+
+    def __init__(self, incoming, pool_size, stride=None, pad=(0, 0, 0),
+                 ignore_border=True, mode='max', **kwargs):
+        super(Pool3DLayer, self).__init__(incoming, **kwargs)
+
+        self.pool_size = as_tuple(pool_size, 3)
+
+        if len(self.input_shape) != 5:
+            raise ValueError("Tried to create a 3D pooling layer with "
+                             "input shape %r. Expected 5 input dimensions "
+                             "(batchsize, channels, 3 spatial dim)."
+                             % (self.input_shape,))
+
+        if stride is None:
+            self.stride = self.pool_size
+        else:
+            self.stride = as_tuple(stride, 3)
+
+        self.pad = as_tuple(pad, 3)
+
+        self.ignore_border = ignore_border
+        self.mode = mode
+
+    def get_output_shape_for(self, input_shape):
+        output_shape = list(input_shape)  # copy / convert to mutable list
+
+        output_shape[2] = pool_output_length(input_shape[2],
+                                             pool_size=self.pool_size[0],
+                                             stride=self.stride[0],
+                                             pad=self.pad[0],
+                                             ignore_border=self.ignore_border,
+                                             )
+
+        output_shape[3] = pool_output_length(input_shape[3],
+                                             pool_size=self.pool_size[1],
+                                             stride=self.stride[1],
+                                             pad=self.pad[1],
+                                             ignore_border=self.ignore_border,
+                                             )
+
+        output_shape[4] = pool_output_length(input_shape[4],
+                                             pool_size=self.pool_size[2],
+                                             stride=self.stride[2],
+                                             pad=self.pad[2],
+                                             ignore_border=self.ignore_border,
+                                             )
+
+        return tuple(output_shape)
+
+    def get_output_for(self, input, **kwargs):
+        pooled = pool_3d(input,
+                         ws=self.pool_size,
+                         stride=self.stride,
+                         ignore_border=self.ignore_border,
+                         pad=self.pad,
                          mode=self.mode,
                          )
         return pooled
@@ -374,7 +516,67 @@ class MaxPool2DLayer(Pool2DLayer):
                                              **kwargs)
 
 # TODO: add reshape-based implementation to MaxPool*DLayer
-# TODO: add MaxPool3DLayer
+
+
+class MaxPool3DLayer(Pool3DLayer):  # pragma: no cover
+    """
+    3D max-pooling layer
+
+    Performs 3D max-pooling over the three trailing axes of a 5D input tensor.
+
+    Parameters
+    ----------
+    incoming : a :class:`Layer` instance or tuple
+        The layer feeding into this layer, or the expected input shape.
+
+    pool_size : integer or iterable
+        The length of the pooling region in each dimension.  If an integer, it
+        is promoted to a cubic pooling region. If an iterable, it should have
+        three elements.
+
+    stride : integer, iterable or ``None``
+        The strides between sucessive pooling regions in each dimension.
+        If ``None`` then ``stride = pool_size``.
+
+    pad : integer or iterable
+        Number of elements to be added on each side of the input
+        in each dimension. Each value must be less than
+        the corresponding stride.
+
+    ignore_border : bool
+        If ``True``, partial pooling regions will be ignored.
+        Must be ``True`` if ``pad != (0, 0, 0)``.
+
+    **kwargs
+        Any additional keyword arguments are passed to the :class:`Layer`
+        superclass.
+
+    Notes
+    -----
+    The value used to pad the input is chosen to be less than
+    the minimum of the input, so that the output of each pooling region
+    always corresponds to some element in the unpadded input region.
+
+    Using ``ignore_border=False`` prevents Theano from using cuDNN for the
+    operation, so it will fall back to a slower implementation.
+    """
+
+    def __init__(self, incoming, pool_size, stride=None, pad=(0, 0, 0),
+                 ignore_border=True, **kwargs):
+        super(MaxPool3DLayer, self).__init__(incoming,
+                                             pool_size,
+                                             stride,
+                                             pad,
+                                             ignore_border,
+                                             mode='max',
+                                             **kwargs)
+
+
+if not hasattr(T.signal.pool, 'pool_3d'):  # pragma: no cover
+    # Hide Pool3DLayer/MaxPool3DLayer for old Theano versions
+    del Pool3DLayer, MaxPool3DLayer
+    __all__.remove('Pool3DLayer')
+    __all__.remove('MaxPool3DLayer')
 
 
 class Upscale1DLayer(Layer):
@@ -742,3 +944,182 @@ class GlobalPoolLayer(Layer):
 
     def get_output_for(self, input, **kwargs):
         return self.pool_function(input.flatten(3), axis=2)
+
+
+def pool_2d_nxn_regions(inputs, output_size, mode='max'):
+    """
+    Performs a pooling operation that results in a fixed size:
+    output_size x output_size.
+    Used by SpatialPyramidPoolingLayer. Refer to appendix A in [1]
+
+    Parameters
+    ----------
+    inputs : a tensor with 4 dimensions (N x C x H x W)
+    output_size: integer
+        The output size of the pooling operation
+    mode : string
+        Pooling mode, one of 'max', 'average_inc_pad', 'average_exc_pad'
+        Defaults to 'max'.
+
+    Returns a list of tensors, for each output bin.
+       The list contains output_size*output_size elements, where
+       each element is a 3D tensor (N x C x 1)
+
+    References
+    ----------
+    .. [1] He, Kaiming et al (2015):
+           Spatial Pyramid Pooling in Deep Convolutional Networks
+           for Visual Recognition.
+           http://arxiv.org/pdf/1406.4729.pdf.
+    """
+
+    if mode == 'max':
+        pooling_op = T.max
+    elif mode in ['average_inc_pad', 'average_exc_pad']:
+        pooling_op = T.mean
+    else:
+        msg = "Mode must be either 'max', 'average_inc_pad' or "
+        msg += "'average_exc_pad'. Got '{0}'"
+        raise ValueError(msg.format(mode))
+
+    h, w = inputs.shape[2:]
+
+    result = []
+    n = float(output_size)
+
+    for row in range(output_size):
+        for col in range(output_size):
+            start_h = T.floor(row / n * h).astype('int32')
+            end_h = T.ceil((row + 1) / n * h).astype('int32')
+            start_w = T.floor(col / n * w).astype('int32')
+            end_w = T.ceil((col + 1) / n * w).astype('int32')
+
+            pooling_region = inputs[:, :, start_h:end_h, start_w:end_w]
+            this_result = pooling_op(pooling_region, axis=(2, 3))
+            result.append(this_result.dimshuffle(0, 1, 'x'))
+    return result
+
+
+class SpatialPyramidPoolingLayer(Layer):
+    """
+    Spatial Pyramid Pooling Layer
+
+    Performs spatial pyramid pooling (SPP) over the input.
+    It will turn a 2D input of arbitrary size into an output of fixed
+    dimension.
+    Hence, the convolutional part of a DNN can be connected to a dense part
+    with a fixed number of nodes even if the dimensions of the
+    input image are unknown.
+
+    The pooling is performed over :math:`l` pooling levels.
+    Each pooling level :math:`i` will create :math:`M_i` output features.
+    :math:`M_i` is given by :math:`n_i * n_i`,
+    with :math:`n_i` as the number of pooling operation per dimension in
+    level :math:`i`, and we use a list of the :math:`n_i`'s as a
+    parameter for SPP-Layer.
+    The length of this list is the level of the spatial pyramid.
+
+    Parameters
+    ----------
+    incoming : a :class:`Layer` instance or tuple
+        The layer feeding into this layer, or the expected input shape.
+
+    pool_dims : list of integers
+        The list of :math:`n_i`'s that define the output dimension of each
+        pooling level :math:`i`. The length of pool_dims is the level of
+        the spatial pyramid.
+
+    mode : string
+        Pooling mode, one of 'max', 'average_inc_pad', 'average_exc_pad'
+        Defaults to 'max'.
+
+    implementation : string
+        Either 'fast' or 'kaiming'. The 'fast' version uses theano's pool_2d
+        operation, which is fast but does not work for all input sizes.
+        The 'kaiming' mode is slower but implements the pooling as described
+        in [1], and works with any input size.
+
+    **kwargs
+        Any additional keyword arguments are passed to the :class:`Layer`
+        superclass.
+
+    Notes
+    -----
+    This layer should be inserted between the convolutional part of a
+    DNN and its dense part. Convolutions can be used for
+    arbitrary input dimensions, but the size of their output will
+    depend on their input dimensions. Connecting the output of the
+    convolutional to the dense part then usually demands us to fix
+    the dimensions of the network's InputLayer.
+    The spatial pyramid pooling layer, however, allows us to leave the
+    network input dimensions arbitrary. The advantage over a global
+    pooling layer is the added robustness against object deformations
+    due to the pooling on different scales.
+
+    References
+    ----------
+    .. [1] He, Kaiming et al (2015):
+           Spatial Pyramid Pooling in Deep Convolutional Networks
+           for Visual Recognition.
+           http://arxiv.org/pdf/1406.4729.pdf.
+    """
+    def __init__(self, incoming, pool_dims=[4, 2, 1], mode='max',
+                 implementation='fast', **kwargs):
+            super(SpatialPyramidPoolingLayer, self).__init__(incoming,
+                                                             **kwargs)
+            if len(self.input_shape) != 4:
+                raise ValueError("Tried to create a SPP layer with "
+                                 "input shape %r. Expected 4 input dimensions "
+                                 "(batchsize, channels, 2 spatial dimensions)."
+                                 % (self.input_shape,))
+
+            if implementation != 'kaiming':  # pragma: no cover
+                # Check if the running theano version supports symbolic
+                # variables as arguments for pool_2d. This is required
+                # unless using implementation='kaiming'
+                try:
+                    pool_2d(T.tensor4(),
+                            ws=T.ivector(),
+                            stride=T.ivector(),
+                            ignore_border=True,
+                            pad=None)
+                except ValueError:
+                    raise ImportError("SpatialPyramidPoolingLayer with "
+                                      "implementation='%s' requires a newer "
+                                      "version of theano. Either update "
+                                      "theano, or use implementation="
+                                      "'kaiming'" % implementation)
+
+            self.mode = mode
+            self.implementation = implementation
+            self.pool_dims = pool_dims
+
+    def get_output_for(self, input, **kwargs):
+        input_size = tuple(symb if fixed is None else fixed
+                           for fixed, symb
+                           in zip(self.input_shape[2:], input.shape[2:]))
+        pool_list = []
+        for pool_dim in self.pool_dims:
+            if self.implementation == 'kaiming':
+                pool_list += pool_2d_nxn_regions(input,
+                                                 pool_dim,
+                                                 mode=self.mode)
+            else:  # pragma: no cover
+                win_size = tuple((i + pool_dim - 1) // pool_dim
+                                 for i in input_size)
+                str_size = tuple(i // pool_dim for i in input_size)
+
+                pool = pool_2d(input,
+                               ws=win_size,
+                               stride=str_size,
+                               mode=self.mode,
+                               pad=None,
+                               ignore_border=True)
+                pool = pool.flatten(3)
+                pool_list.append(pool)
+
+        return T.concatenate(pool_list, axis=2)
+
+    def get_output_shape_for(self, input_shape):
+        num_features = sum(p*p for p in self.pool_dims)
+        return (input_shape[0], input_shape[1], num_features)

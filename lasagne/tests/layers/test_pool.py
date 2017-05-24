@@ -174,6 +174,39 @@ def spatial_pool(data, pool_dims):
     return np.concatenate(pooled_data_list, axis=2)
 
 
+def np_pool_fixed_output_size(feature_maps, output_size, pool_op):
+    m, c, h, w = feature_maps.shape
+    result = np.zeros((m, c, output_size, output_size),
+                      dtype=feature_maps.dtype)
+
+    n = float(output_size)
+    for i in range(output_size):
+        for j in range(output_size):
+            start_h = int(np.floor((j)/n*h))
+            end_h = int(np.ceil((j+1)/n*h))
+            start_w = int(np.floor((i)/n*w))
+            end_w = int(np.ceil((i+1)/n*w))
+
+            region = feature_maps[:, :, start_h:end_h, start_w:end_w]
+            result[:, :, j, i] = pool_op(region, axis=(2, 3))
+    return result
+
+
+def np_spatial_pool_kaiming(feature_maps, pool_sizes, mode):
+    m, c = feature_maps.shape[0:2]
+
+    if mode == 'max':
+        op = np.max
+    else:
+        op = np.mean
+
+    maps = []
+    for p in pool_sizes:
+        pool_result = np_pool_fixed_output_size(feature_maps, p, op)
+        maps.append(pool_result.reshape((m, c, -1)))
+    return np.concatenate(maps, axis=2)
+
+
 class TestFeaturePoolLayer:
     def pool_test_sets():
         for pool_size in [2, 3]:
@@ -611,6 +644,89 @@ class TestMaxPool2DNNLayer:
         assert "Expected 4 input dimensions" in exc.value.args[0]
 
 
+class TestPool3DLayer:
+    def pool_test_sets_ignoreborder():
+        for pool_size in [2, 3]:
+            for stride in [1, 2, 3, 4]:
+                for pad in range(pool_size):
+                    yield (pool_size, stride, pad)
+
+    def input_layer(self, output_shape):
+        return Mock(output_shape=output_shape)
+
+    def layer(self, input_layer, pool_size, stride, pad):
+        try:
+            from lasagne.layers.pool import Pool3DLayer
+        except ImportError:
+            pytest.skip("theano.signal.pool.pool_3d not available")
+
+        return Pool3DLayer(
+            input_layer,
+            pool_size=pool_size,
+            stride=stride,
+            pad=pad,
+        )
+
+    @pytest.mark.parametrize(
+        "pool_size, stride, pad", list(pool_test_sets_ignoreborder()))
+    def test_get_output_for_ignoreborder(self, pool_size,
+                                         stride, pad):
+        try:
+            input = floatX(np.random.randn(5, 8, 16, 17, 13))
+            input_layer = self.input_layer(input.shape)
+            input_theano = theano.shared(input)
+
+            result = self.layer(
+                input_layer,
+                pool_size,
+                stride,
+                pad,
+            ).get_output_for(input_theano)
+
+            result_eval = result.eval()
+            numpy_result = max_pool_3d_ignoreborder(
+                input, [pool_size]*3, [stride]*3, [pad]*3)
+
+            assert np.all(numpy_result.shape == result_eval.shape)
+            assert np.allclose(result_eval, numpy_result)
+        except NotImplementedError:
+            pytest.skip()
+
+    @pytest.mark.parametrize(
+        "input_shape,output_shape",
+        [((32, 32, 64, 24, 24), (32, 32, 32, 12, 12)),
+         ((None, 32, 48, 24, 24), (None, 32, 24, 12, 12)),
+         ((32, None, 32, 24, 24), (32, None, 16, 12, 12)),
+         ((32, 64, None, 24, 24), (32, 64, None, 12, 12)),
+         ((32, 64, 32, None, 24), (32, 64, 16, None, 12)),
+         ((32, 64, 32, 24, None), (32, 64, 16, 12, None)),
+         ((32, 64, 12, None, None), (32, 64, 6, None, None)),
+         ((32, 64, None, None, None), (32, 64, None, None, None))],
+    )
+    def test_get_output_shape_for(self, input_shape, output_shape):
+        try:
+            input_layer = self.input_layer(input_shape)
+            layer = self.layer(input_layer,
+                               pool_size=(2, 2, 2), stride=None, pad=(0, 0, 0))
+            assert layer.get_output_shape_for(
+                input_shape) == output_shape
+        except NotImplementedError:
+            raise
+        #    pytest.skip()
+
+    def test_fail_on_mismatching_dimensionality(self):
+        try:
+            from lasagne.layers.pool import Pool3DLayer
+        except ImportError:
+            pytest.skip("theano.signal.pool.pool_3d not available")
+        with pytest.raises(ValueError) as exc:
+            Pool3DLayer((10, 20, 30, 40), 3, 2)
+        assert "Expected 5 input dimensions" in exc.value.args[0]
+        with pytest.raises(ValueError) as exc:
+            Pool3DLayer((10, 20, 30, 40, 50, 60), 3, 2)
+        assert "Expected 5 input dimensions" in exc.value.args[0]
+
+
 class TestMaxPool3DNNLayer:
     def pool_test_sets_ignoreborder():
         for pool_size in [2, 3]:
@@ -1034,10 +1150,15 @@ class TestSpatialPyramidPoolingDNNLayer:
 
     @pytest.mark.parametrize(
         "pool_dims", list(pool_dims_test_sets()))
-    def test_get_output_for(self, pool_dims):
+    @pytest.mark.parametrize(
+        "fixed", [True, False])
+    def test_get_output_for(self, pool_dims, fixed):
         try:
             input = floatX(np.random.randn(8, 16, 17, 13))
-            input_layer = self.input_layer(input.shape)
+            if fixed:
+                input_layer = self.input_layer(input.shape)
+            else:
+                input_layer = self.input_layer((None, None, None, None))
             input_theano = theano.shared(input)
             layer = self.layer(input_layer, pool_dims)
 
@@ -1048,7 +1169,7 @@ class TestSpatialPyramidPoolingDNNLayer:
 
             assert result_eval.shape == numpy_result.shape
             assert np.allclose(result_eval, numpy_result)
-            assert result_eval.shape == layer.output_shape
+            assert result_eval.shape[2] == layer.output_shape[2]
         except NotImplementedError:
             pytest.skip()
 
@@ -1078,3 +1199,120 @@ class TestSpatialPyramidPoolingDNNLayer:
         with pytest.raises(ValueError) as exc:
             SpatialPyramidPoolingDNNLayer((10, 20, 30, 40, 50))
         assert "Expected 4 input dimensions" in exc.value.args[0]
+
+
+class TestSpatialPyramidPoolingLayer:
+    def pool_dims_test_sets():
+        for pyramid_level in [2, 3, 4]:
+            pool_dims = list(range(1, pyramid_level))
+            yield pool_dims
+
+    def input_layer(self, output_shape):
+        return Mock(output_shape=output_shape)
+
+    def layer(self, input_layer, pool_dims, mode='max', implementation='fast'):
+        from lasagne.layers import SpatialPyramidPoolingLayer
+
+        if implementation != 'kaiming':
+            try:
+                import theano.tensor as T
+                from lasagne.layers.pool import pool_2d
+                pool_2d(T.tensor4(),
+                        ws=T.ivector(),
+                        stride=T.ivector(),
+                        ignore_border=True,
+                        pad=None)
+            except ValueError:
+                pytest.skip('Old theano version')
+
+        return SpatialPyramidPoolingLayer(input_layer,
+                                          pool_dims=pool_dims,
+                                          mode=mode,
+                                          implementation=implementation)
+
+    @pytest.mark.parametrize(
+        "pool_dims", list(pool_dims_test_sets()))
+    @pytest.mark.parametrize(
+        "fixed", [True, False])
+    def test_get_output_for_fast(self, pool_dims, fixed):
+        try:
+            input = floatX(np.random.randn(8, 16, 17, 13))
+            if fixed:
+                input_layer = self.input_layer(input.shape)
+            else:
+                input_layer = self.input_layer((None, None, None, None))
+            input_theano = theano.shared(input)
+            layer = self.layer(input_layer, pool_dims)
+
+            result = layer.get_output_for(input_theano)
+
+            result_eval = result.eval()
+            numpy_result = spatial_pool(input, pool_dims)
+
+            assert result_eval.shape == numpy_result.shape
+            assert np.allclose(result_eval, numpy_result)
+            assert result_eval.shape[2] == layer.output_shape[2]
+        except NotImplementedError:
+            pytest.skip()
+
+    @pytest.mark.parametrize(
+        "pool_dims", list(pool_dims_test_sets()))
+    @pytest.mark.parametrize(
+        "fixed", [True, False])
+    @pytest.mark.parametrize(
+        "mode", ['max', 'average_exc_pad'])
+    def test_get_output_for_kaiming(self, pool_dims, fixed, mode):
+        try:
+            input = floatX(np.random.randn(8, 16, 17, 13))
+            if fixed:
+                input_layer = self.input_layer(input.shape)
+            else:
+                input_layer = self.input_layer((None, None, None, None))
+            input_theano = theano.shared(input)
+            layer = self.layer(input_layer, pool_dims,
+                               mode=mode, implementation='kaiming')
+
+            result = layer.get_output_for(input_theano)
+
+            result_eval = result.eval()
+            numpy_result = np_spatial_pool_kaiming(input, pool_dims, mode)
+
+            assert result_eval.shape == numpy_result.shape
+            assert np.allclose(result_eval, numpy_result, atol=1e-7)
+            assert result_eval.shape[2] == layer.output_shape[2]
+        except NotImplementedError:
+            pytest.skip()
+
+    @pytest.mark.parametrize(
+        "input_shape,output_shape",
+        [((32, 64, 24, 24), (32, 64, 21)),
+         ((None, 64, 23, 25), (None, 64, 21)),
+         ((32, None, 22, 26), (32, None, 21)),
+         ((None, None, None, None), (None, None, 21))],
+    )
+    def test_get_output_shape_for(self, input_shape, output_shape):
+        try:
+            input_layer = self.input_layer(input_shape)
+            layer = self.layer(input_layer, pool_dims=[1, 2, 4])
+            assert layer.get_output_shape_for(input_shape) == output_shape
+        except NotImplementedError:
+            raise
+
+    def test_fail_on_mismatching_dimensionality(self):
+        from lasagne.layers import SpatialPyramidPoolingLayer
+
+        with pytest.raises(ValueError) as exc:
+            SpatialPyramidPoolingLayer((10, 20, 30))
+        assert "Expected 4 input dimensions" in exc.value.args[0]
+        with pytest.raises(ValueError) as exc:
+            SpatialPyramidPoolingLayer((10, 20, 30, 40, 50))
+        assert "Expected 4 input dimensions" in exc.value.args[0]
+
+    def test_fail_invalid_mode(self):
+        with pytest.raises(ValueError) as exc:
+            input = self.input_layer((None, None, None, None))
+            layer = self.layer(input, pool_dims=[1],
+                               mode='other', implementation='kaiming')
+            layer.get_output_for(Mock(shape=(1, 1, 1, 1)))
+        assert "Mode must be either 'max', 'average_inc_pad' or " \
+               "'average_exc_pad'. Got 'other'" in exc.value.args[0]
